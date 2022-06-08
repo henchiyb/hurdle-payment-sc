@@ -4,7 +4,8 @@ use near_sdk::Timestamp;
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct TransferTransaction {
-  pub account_id: AccountId,
+  pub sender_id: AccountId,
+  pub receiver_id: AccountId,
   pub locked_balance: Balance,
   pub transaction_start_at: Timestamp,
   pub transaction_unlock_at: Timestamp,
@@ -13,16 +14,18 @@ pub struct TransferTransaction {
 #[derive(Deserialize, Serialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct TransferTransactionJson {
-  pub account_id: AccountId,
+  pub sender_id: AccountId,
+  pub receiver_id: AccountId,
   pub locked_balance: U128,
   pub transaction_start_at: Timestamp,
   pub transaction_unlock_at: Timestamp,
 }
 
 impl TransferTransactionJson {
-  pub fn from(account_id: AccountId, transaction: TransferTransaction) -> Self {
+  pub fn from(transaction: TransferTransaction) -> Self {
     TransferTransactionJson {
-      account_id,
+      sender_id: transaction.sender_id,
+      receiver_id: transaction.receiver_id,
       locked_balance: U128(transaction.locked_balance),
       transaction_start_at: transaction.transaction_start_at,
       transaction_unlock_at: transaction.transaction_unlock_at,
