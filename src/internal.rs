@@ -1,5 +1,4 @@
 use crate::*;
-use chrono::prelude::*;
 
 #[near_bindgen]
 impl HurdlePayment {
@@ -8,7 +7,7 @@ impl HurdlePayment {
       unlocked_balance: 0,
       locked_balance: 0,
       total_revenue: 0,
-      last_unlock_at: Utc::now().format("%Y-%m-%d").to_string(),
+      last_unlock_at: env::epoch_height(),
       transactions: UnorderedMap::new(StorageKey::DateTransactionKey),
     };
     self.accounts.insert(&account_id, &account);
@@ -25,51 +24,39 @@ impl HurdlePayment {
     let account = self.accounts.get(&receiver_id);
     assert!(account.is_some(), "Account not found");
     let mut account = account.unwrap();
-    let utc_datetime = Utc::now();
-    let today_str = Utc::now().format("%Y-%m-%d").to_string();
     let trans = TransferTransaction {
       sender_id: env::predecessor_account_id(),
       receiver_id: receiver_id.clone(),
       campaign_id: campaign_id,
       locked_balance: amount,
-      created_at: utc_datetime.format("%Y-%m-%d %H:%M:%S %Z").to_string(),
-      claimable_at: (utc_datetime + Duration::days(cash_hold_time))
-        .format("%Y-%m-%d %H:%M:%S %Z")
-        .to_string(),
+      created_at: env::epoch_height(),
+      claimable_at: env::epoch_height() + cash_hold_time as u64,
       status: "LOCK".to_string(),
     };
-    let transactions = account.transactions.get(&today_str);
+    let today_epoch = env::epoch_height();
+    let transactions = account.transactions.get(&today_epoch);
     if transactions.is_none() {
       let mut map = UnorderedMap::new(StorageKey::TransactionKey);
       map.insert(&transaction_id, &trans);
-      account.transactions.insert(&today_str, &map);
+      account.transactions.insert(&today_epoch, &map);
     }
     account.locked_balance += amount;
     account.total_revenue += amount;
     self.accounts.insert(&receiver_id, &account);
   }
 
-  pub(crate) fn internal_unlock_locked_balance(&mut self, account_id: AccountId, end_date: String) {
+  pub(crate) fn internal_unlock_locked_balance(&mut self, account_id: AccountId, end_epoch: u64) {
     let account = self.accounts.get(&account_id);
     assert!(account.is_some(), "Account not found");
     let mut account = account.unwrap();
-    let end_date_parse = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").unwrap();
-    let mut last_unlock_at =
-      NaiveDate::parse_from_str(&account.last_unlock_at, "%Y-%m-%d").unwrap();
-    let utc_datetime = Utc::now();
-    while last_unlock_at <= end_date_parse {
-      let dt = last_unlock_at.format("%Y-%m-%d").to_string();
-      let transactions = account.transactions.get(&dt);
+    let mut last_unlock_at = account.last_unlock_at;
+    while last_unlock_at <= end_epoch {
+      let transactions = account.transactions.get(&last_unlock_at);
       if transactions.is_some() {
         let mut transactions = transactions.unwrap();
-        println!("{}", transactions.len());
         for transaction in transactions.to_vec() {
           let (transaction_id, mut transaction) = transaction;
-          if utc_datetime
-            > Utc
-              .datetime_from_str(&transaction.claimable_at, "%Y-%m-%d %H:%M:%S UTC")
-              .unwrap()
-          {
+          if env::epoch_height() >= transaction.claimable_at {
             transaction.status = "CLAIM".to_string();
             transactions.insert(&transaction_id, &transaction);
             println!("{}", account.locked_balance);
@@ -82,10 +69,45 @@ impl HurdlePayment {
           }
         }
       }
-      last_unlock_at += Duration::days(1);
+      last_unlock_at += 1;
     }
-    account.last_unlock_at = end_date;
+    account.last_unlock_at = end_epoch;
     self.accounts.insert(&account_id, &account);
+  }
+
+  pub(crate) fn internal_refund_to_sender(
+    &mut self,
+    sender_id: AccountId,
+    receiver_id: AccountId,
+    transaction_id: String,
+    create_epoch: u64,
+  ) {
+    let account = self.accounts.get(&receiver_id);
+    assert!(account.is_some(), "Account not found");
+    let mut account = account.unwrap();
+    let transactions = account.transactions.get(&create_epoch);
+    if transactions.is_some() {
+      let mut transactions = transactions.unwrap();
+      let transaction = transactions.get(&transaction_id);
+      if transaction.is_some() {
+        let mut transaction = transaction.unwrap();
+
+        if env::epoch_height() < transaction.claimable_at {
+          transaction.status = "REFUND".to_string();
+          account.locked_balance = account
+            .locked_balance
+            .checked_sub(transaction.locked_balance)
+            .unwrap();
+          account.total_revenue = account
+            .total_revenue
+            .checked_sub(transaction.locked_balance)
+            .unwrap();
+          transactions.insert(&transaction_id, &transaction);
+          Promise::new(sender_id.clone()).transfer(transaction.locked_balance);
+          self.accounts.insert(&receiver_id, &account);
+        }
+      }
+    }
   }
 
   pub(crate) fn internal_withdraw_unlocked_balance(

@@ -7,8 +7,8 @@ pub struct TransferTransaction {
   pub receiver_id: AccountId,
   pub campaign_id: String,
   pub locked_balance: Balance,
-  pub created_at: String,
-  pub claimable_at: String,
+  pub created_at: u64,
+  pub claimable_at: u64,
   pub status: String, // LOCK UNLOCK REFUND
 }
 
@@ -20,8 +20,8 @@ pub struct TransferTransactionJson {
   pub receiver_id: AccountId,
   pub campaign_id: String,
   pub locked_balance: U128,
-  pub created_at: String,
-  pub claimable_at: String,
+  pub created_at: u64,
+  pub claimable_at: u64,
   pub status: String, // LOCK UNLOCK REFUND
 }
 

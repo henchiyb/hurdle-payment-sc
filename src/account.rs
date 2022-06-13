@@ -6,8 +6,8 @@ pub struct Account {
   pub unlocked_balance: Balance,
   pub locked_balance: Balance,
   pub total_revenue: Balance,
-  pub transactions: UnorderedMap<String, UnorderedMap<String, TransferTransaction>>, // date_string: { transaction_id: TransferTransaction}
-  pub last_unlock_at: String,
+  pub transactions: UnorderedMap<u64, UnorderedMap<String, TransferTransaction>>, // date_string: { transaction_id: TransferTransaction}
+  pub last_unlock_at: u64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -17,7 +17,7 @@ pub struct AccountJson {
   pub unlocked_balance: U128,
   pub locked_balance: U128,
   pub total_revenue: U128,
-  pub last_unlock_at: String,
+  pub last_unlock_at: u64,
 }
 
 impl AccountJson {
