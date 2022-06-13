@@ -243,6 +243,13 @@ mod tests {
             accounts(1).to_string(),
             Utc::now().format("%Y-%m-%d").to_string(),
         );
+        let mut transactions = contract.get_transactions_info(
+            accounts(1).to_string(),
+            Utc::now().format("%Y-%m-%d").to_string(),
+            Utc::now().format("%Y-%m-%d").to_string(),
+        );
+
+        assert_eq!(transactions.pop().unwrap().status, "CLAIM");
         assert_eq!(
             contract
                 .get_account_info(accounts(1).to_string())
