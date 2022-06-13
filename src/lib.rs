@@ -19,8 +19,8 @@ mod transfer_transaction;
 #[derive(BorshDeserialize, BorshSerialize, BorshStorageKey)]
 pub enum StorageKey {
     AccountKey,
-    DateTransactionKey,
-    TransactionKey,
+    AccountTransaction { account_hash: Vec<u8> },
+    AccountTransactionByDate { account_hash: Vec<u8> },
 }
 
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
@@ -94,7 +94,15 @@ impl HurdlePayment {
             transaction_id,
         );
         let after_storage_usage = env::storage_usage();
-        refund_deposit(amount, after_storage_usage - before_storage_usage);
+        println!("{} {}", after_storage_usage, before_storage_usage);
+        if after_storage_usage > before_storage_usage {
+            refund_deposit(
+                amount,
+                after_storage_usage
+                    .checked_sub(before_storage_usage)
+                    .unwrap(),
+            );
+        }
     }
 
     #[payable]
@@ -208,8 +216,8 @@ mod tests {
             accounts(1).to_string(),
             1.0,
             0,
-            "1".to_string(),
-            "1".to_string(),
+            "12".to_string(),
+            "test1".to_string(),
         );
         let account_info = contract.get_account_info(accounts(1).to_string());
         assert_eq!(account_info.total_revenue, U128(999999999999999983222784));
@@ -221,9 +229,15 @@ mod tests {
             1.0,
             0,
             "1".to_string(),
-            "2".to_string(),
+            "test2".to_string(),
         );
         let account_info = contract.get_account_info(accounts(1).to_string());
+        let mut transactions = contract.get_transactions_info(
+            accounts(1).to_string(),
+            env::epoch_height(),
+            env::epoch_height(),
+        );
+        assert_eq!(transactions.len(), 2);
         assert_eq!(
             account_info.total_revenue,
             U128(999999999999999983222784 * 2)

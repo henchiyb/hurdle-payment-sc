@@ -8,7 +8,9 @@ impl HurdlePayment {
       locked_balance: 0,
       total_revenue: 0,
       last_unlock_at: env::epoch_height(),
-      transactions: UnorderedMap::new(StorageKey::DateTransactionKey),
+      transactions: UnorderedMap::new(StorageKey::AccountTransactionByDate {
+        account_hash: env::sha256(account_id.as_bytes()),
+      }),
     };
     self.accounts.insert(&account_id, &account);
   }
@@ -36,10 +38,23 @@ impl HurdlePayment {
     let today_epoch = env::epoch_height();
     let transactions = account.transactions.get(&today_epoch);
     if transactions.is_none() {
-      let mut map = UnorderedMap::new(StorageKey::TransactionKey);
+      let mut map = UnorderedMap::new(StorageKey::AccountTransaction {
+        account_hash: env::sha256(env::epoch_height().to_string().as_bytes()),
+      });
       map.insert(&transaction_id, &trans);
       account.transactions.insert(&today_epoch, &map);
+    } else {
+      let mut transactions = transactions.unwrap();
+      let check_transaction = transactions.get(&transaction_id);
+      assert_eq!(
+        check_transaction.is_none(),
+        true,
+        "Transaction ID Duplicated"
+      );
+      transactions.insert(&transaction_id, &trans);
+      account.transactions.insert(&today_epoch, &transactions);
     }
+
     account.locked_balance += amount;
     account.total_revenue += amount;
     self.accounts.insert(&receiver_id, &account);
@@ -91,8 +106,9 @@ impl HurdlePayment {
       let transaction = transactions.get(&transaction_id);
       if transaction.is_some() {
         let mut transaction = transaction.unwrap();
-
-        if env::epoch_height() < transaction.claimable_at {
+        if env::epoch_height() < transaction.claimable_at
+          && transaction.status == "LOCK".to_string()
+        {
           transaction.status = "REFUND".to_string();
           account.locked_balance = account
             .locked_balance
