@@ -1,5 +1,4 @@
 use crate::*;
-use near_sdk::Timestamp;
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
@@ -7,8 +6,9 @@ pub struct TransferTransaction {
   pub sender_id: AccountId,
   pub receiver_id: AccountId,
   pub locked_balance: Balance,
-  pub transaction_start_at: Timestamp,
-  pub transaction_unlock_at: Timestamp,
+  pub created_at: String,
+  pub claimable_at: String,
+  pub status: String, // LOCK UNLOCK REFUND
 }
 
 #[derive(Deserialize, Serialize)]
@@ -17,8 +17,9 @@ pub struct TransferTransactionJson {
   pub sender_id: AccountId,
   pub receiver_id: AccountId,
   pub locked_balance: U128,
-  pub transaction_start_at: Timestamp,
-  pub transaction_unlock_at: Timestamp,
+  pub created_at: String,
+  pub claimable_at: String,
+  pub status: String, // LOCK UNLOCK REFUND
 }
 
 impl TransferTransactionJson {
@@ -27,8 +28,9 @@ impl TransferTransactionJson {
       sender_id: transaction.sender_id,
       receiver_id: transaction.receiver_id,
       locked_balance: U128(transaction.locked_balance),
-      transaction_start_at: transaction.transaction_start_at,
-      transaction_unlock_at: transaction.transaction_unlock_at,
+      created_at: transaction.created_at,
+      claimable_at: transaction.claimable_at,
+      status: transaction.status,
     }
   }
 }
