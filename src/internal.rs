@@ -4,7 +4,6 @@ use crate::*;
 impl HurdlePayment {
   pub(crate) fn internal_register_account(&mut self, account_id: AccountId) {
     let account = Account {
-      unlocked_balance: 0,
       locked_balance: 0,
       total_revenue: 0,
       last_unlock_at: env::epoch_height(),
@@ -60,37 +59,39 @@ impl HurdlePayment {
     self.accounts.insert(&receiver_id, &account);
   }
 
-  pub(crate) fn internal_unlock_locked_balance(&mut self, account_id: AccountId, end_epoch: u64) {
+  pub(crate) fn internal_unlock_locked_balance(&mut self, account_id: AccountId) {
     let account = self.accounts.get(&account_id);
     assert!(account.is_some(), "Account not found");
     let mut account = account.unwrap();
     let mut last_unlock_at = account.last_unlock_at;
-    while last_unlock_at <= end_epoch {
+    let mut transer_amount = 0;
+    while last_unlock_at <= env::epoch_height() {
       let transactions = account.transactions.get(&last_unlock_at);
       if transactions.is_some() {
         let mut transactions = transactions.unwrap();
         for transaction in transactions.to_vec() {
           let (transaction_id, mut transaction) = transaction;
-          if env::epoch_height() >= transaction.claimable_at {
+          if env::epoch_height() >= transaction.claimable_at
+            && transaction.status == "LOCK".to_string()
+          {
             transaction.status = "CLAIM".to_string();
             transactions.insert(&transaction_id, &transaction);
-            println!("{}", account.locked_balance);
-            println!("{}", transaction.locked_balance);
             account.locked_balance = account
               .locked_balance
               .checked_sub(transaction.locked_balance)
               .unwrap();
-            account.unlocked_balance += transaction.locked_balance;
+            transer_amount += transaction.locked_balance;
           }
         }
       }
       last_unlock_at += 1;
     }
-    account.last_unlock_at = end_epoch;
+    Promise::new(account_id.clone()).transfer(transer_amount);
+    account.last_unlock_at = env::epoch_height();
     self.accounts.insert(&account_id, &account);
   }
 
-  pub(crate) fn internal_refund_to_sender(
+  pub(crate) fn internal_refund_by_transaction_id(
     &mut self,
     sender_id: AccountId,
     receiver_id: AccountId,
@@ -126,20 +127,44 @@ impl HurdlePayment {
     }
   }
 
-  pub(crate) fn internal_withdraw_unlocked_balance(
+  pub(crate) fn internal_refund_by_epoch(
     &mut self,
+    sender_id: AccountId,
     receiver_id: AccountId,
-    amount: Balance,
+    cash_hold_time: u64,
   ) {
     let account = self.accounts.get(&receiver_id);
     assert!(account.is_some(), "Account not found");
     let mut account = account.unwrap();
-    assert!(
-      amount <= account.unlocked_balance,
-      "Can't withdraw amount large than unlocked balance"
-    );
-    account.unlocked_balance -= amount;
-    Promise::new(receiver_id.clone()).transfer(amount);
+    let mut start_epoch = env::epoch_height() - cash_hold_time * 2;
+    let mut transer_amount = 0;
+    while start_epoch <= env::epoch_height() {
+      let transactions = account.transactions.get(&start_epoch);
+      if transactions.is_some() {
+        let mut transactions = transactions.unwrap();
+        for transaction in transactions.to_vec() {
+          let (transaction_id, mut transaction) = transaction;
+          if env::epoch_height() < transaction.claimable_at
+            && sender_id == transaction.sender_id
+            && receiver_id == transaction.receiver_id
+          {
+            transaction.status = "REFUND".to_string();
+            transactions.insert(&transaction_id, &transaction);
+            account.locked_balance = account
+              .locked_balance
+              .checked_sub(transaction.locked_balance)
+              .unwrap();
+            account.total_revenue = account
+              .total_revenue
+              .checked_sub(transaction.locked_balance)
+              .unwrap();
+            transer_amount += transaction.locked_balance;
+          }
+        }
+      }
+      start_epoch += 1;
+    }
+    Promise::new(sender_id.clone()).transfer(transer_amount);
     self.accounts.insert(&receiver_id, &account);
   }
 }

@@ -89,12 +89,11 @@ impl HurdlePayment {
         self.internal_create_transfer_transaction(
             receiver_id,
             amount,
-            cash_hold_time,
+            cash_hold_time * 2,
             campaign_id,
             transaction_id,
         );
         let after_storage_usage = env::storage_usage();
-        println!("{} {}", after_storage_usage, before_storage_usage);
         if after_storage_usage > before_storage_usage {
             refund_deposit(
                 amount,
@@ -106,25 +105,34 @@ impl HurdlePayment {
     }
 
     #[payable]
-    pub fn withdraw_unlocked_balance(&mut self, receiver_id: AccountId, y_amount: f64) {
-        let amount = (y_amount * 1_000_000_000_000_000_000_000_000_f64) as u128;
-        self.internal_withdraw_unlocked_balance(receiver_id, amount);
+    pub fn claim_and_withdraw(&mut self, account_id: AccountId) {
+        self.internal_unlock_locked_balance(account_id);
     }
 
     #[payable]
-    pub fn claim_for_withdraw(&mut self, account_id: AccountId, end_epoch: u64) {
-        self.internal_unlock_locked_balance(account_id, end_epoch);
-    }
-
-    #[payable]
-    pub fn refund_to_sender(
+    pub fn refund_by_transaction_id(
         &mut self,
         sender_id: AccountId,
         receiver_id: AccountId,
         transaction_id: String,
         create_epoch: u64,
     ) {
-        self.internal_refund_to_sender(sender_id, receiver_id, transaction_id, create_epoch);
+        self.internal_refund_by_transaction_id(
+            sender_id,
+            receiver_id,
+            transaction_id,
+            create_epoch,
+        );
+    }
+
+    #[payable]
+    pub fn refund_by_epoch(
+        &mut self,
+        sender_id: AccountId,
+        receiver_id: AccountId,
+        cash_hold_time: u64,
+    ) {
+        self.internal_refund_by_epoch(sender_id, receiver_id, cash_hold_time);
     }
 
     pub fn get_account_info(&self, account_id: AccountId) -> AccountJson {
@@ -270,7 +278,7 @@ mod tests {
             .get(&accounts(1).to_string())
             .unwrap()
             .locked_balance;
-        contract.claim_for_withdraw(accounts(1).to_string(), env::epoch_height());
+        contract.claim_and_withdraw(accounts(1).to_string());
         let mut transactions = contract.get_transactions_info(
             accounts(1).to_string(),
             env::epoch_height(),
@@ -278,12 +286,6 @@ mod tests {
         );
 
         assert_eq!(transactions.pop().unwrap().status, "CLAIM");
-        assert_eq!(
-            contract
-                .get_account_info(accounts(1).to_string())
-                .unlocked_balance,
-            U128(locked_amount)
-        );
 
         assert_eq!(
             contract
@@ -299,13 +301,6 @@ mod tests {
             U128(locked_amount)
         );
 
-        contract.withdraw_unlocked_balance(accounts(1).to_string(), 1.0);
-        assert_eq!(
-            contract
-                .get_account_info(accounts(1).to_string())
-                .unlocked_balance,
-            U128(0)
-        );
         assert_eq!(
             contract
                 .get_account_info(accounts(1).to_string())
@@ -315,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn test_refund() {
+    fn test_refund_by_transaction_id() {
         let context = get_context(false);
 
         testing_env!(context.build());
@@ -331,12 +326,7 @@ mod tests {
             "test".to_string(),
         );
 
-        let locked_amount = contract
-            .accounts
-            .get(&accounts(1).to_string())
-            .unwrap()
-            .locked_balance;
-        contract.refund_to_sender(
+        contract.refund_by_transaction_id(
             accounts(0).to_string(),
             accounts(1).to_string(),
             "test".to_string(),
@@ -350,7 +340,57 @@ mod tests {
             )
             .pop()
             .unwrap();
-        assert_eq!(transaction.claimable_at, env::epoch_height() + 1);
+        assert_eq!(transaction.claimable_at, env::epoch_height() + 2);
+        assert_eq!(&transaction.status, "REFUND");
+        assert_eq!(
+            contract
+                .get_account_info(accounts(1).to_string())
+                .locked_balance,
+            U128(0)
+        );
+
+        assert_eq!(
+            contract
+                .get_account_info(accounts(1).to_string())
+                .total_revenue,
+            U128(0)
+        );
+    }
+
+    #[test]
+    fn test_refund_by_epoch() {
+        let context = get_context(false);
+
+        testing_env!(context.build());
+
+        let mut contract = HurdlePayment::new();
+        contract.register_new_account(accounts(1).to_string());
+        contract.register_new_account(accounts(2).to_string());
+        contract.send_to_contract(
+            accounts(1).to_string(),
+            1.0,
+            1,
+            "1".to_string(),
+            "test".to_string(),
+        );
+        contract.send_to_contract(
+            accounts(1).to_string(),
+            1.0,
+            1,
+            "1".to_string(),
+            "test1".to_string(),
+        );
+
+        contract.refund_by_epoch(accounts(0).to_string(), accounts(1).to_string(), 0);
+        let transaction = contract
+            .get_transactions_info(
+                accounts(1).to_string(),
+                env::epoch_height(),
+                env::epoch_height(),
+            )
+            .pop()
+            .unwrap();
+        assert_eq!(transaction.claimable_at, env::epoch_height() + 2);
         assert_eq!(&transaction.status, "REFUND");
         assert_eq!(
             contract
